@@ -26,22 +26,24 @@ with open(os.path.join(DATASETS_PATH, 'word_stress_pos_full.txt')) as f:
         word_forms[word] = key
         new_forms[key].append(word)
 
-def sound_distance(word1, word2, suffix_len=3):    
+def sound_distance(word1, word2, suffix_len=4):
     suffix1 = (' ' * suffix_len + word1)[-suffix_len:]
     suffix2 = (' ' * suffix_len + word2)[-suffix_len:]
     distance = sum((ch1 != ch2) for ch1, ch2 in zip(suffix1, suffix2))
-    return distance        
+    return distance
 
-def generate_poem(seed, poet_id):
-    skip = ['мой','мою','моя','мое','мне','моё','мной','тот','для','вот','все']
+def bad_poem(template):
+    return any([len(l) < 2 for l in template]) \
+        or template[0][0][0] in string.ascii_letters \
+        or template[-1][-1][-1] in string.ascii_letters
+
+def generate_poem(seed, poet_id, template_id=None):
+    skip = ['мой','мою','моя','мое','мне','моё','мной','тот','для','вот','все','ночи','бог','под', 'что']
 
     # выбираем шаблон на основе случайного стихотворения из корпуса
-    template = template_loader.get_random_template(poet_id)
-    skip_poem = any([len(l) < 2 for l in template]) or template[0][0] in string.ascii_letters
-    while skip_poem:
-        template = template_loader.get_random_template(poet_id)
-        skip_poem = any([len(l) < 2 for l in template]) or template[0][0] in string.ascii_letters
-
+    tid, template = template_loader.get_random_template(poet_id, template_id)
+    while bad_poem(template):
+        tid, template = template_loader.get_random_template(poet_id)
     poem = copy.deepcopy(template)
 
     # оцениваем word2vec-вектор темы
@@ -54,13 +56,13 @@ def generate_poem(seed, poet_id):
     # заменяем слова в шаблоне на более релевантные теме
     for li, line in enumerate(poem):
         llen = len(line) - 1
+        if line[-1] in string.punctuation:
+            llen -= 1
         for ti, token in enumerate(line):
             total += 1
-            if not token.isalpha():
-                continue
 
-            word = token.lower()
-            if len(word) < 3 or word[:3] == 'как' or word in skip:
+            word = token.lower().replace('*', '')
+            if len(word) < 2 or word[:3] == 'как' or word in skip:
                 continue
 
             # выбираем слова - кандидаты на замену: максимально похожие фонетически на исходное слово
@@ -68,10 +70,9 @@ def generate_poem(seed, poet_id):
                 form = word_forms[word]
             else:
                 continue
-#             form = phonetic.get_form(token)
             candidate_phonetic_distances = [
                 (replacement_word, sound_distance(replacement_word, word))
-                for replacement_word in new_forms[form]
+                for replacement_word in new_forms[form] if replacement_word[:4] != 'член'
                 ]
             if not candidate_phonetic_distances:
                 continue
@@ -100,7 +101,8 @@ def generate_poem(seed, poet_id):
 
     # собираем получившееся стихотворение из слов
     generated_poem = '\n'.join([' '.join([token for token in line]).capitalize() for line in poem])
-    return generated_poem
+    clean = generated_poem.replace('« ', '«').replace(' »', '»').replace(' ,', ',').replace(' .', '.').replace(' !', '!').replace(' ?', '?').replace(' :', ':').replace(' ;', ';')
+    return clean
         
 @app.route('/ready')
 def ready():

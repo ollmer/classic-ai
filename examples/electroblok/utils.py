@@ -91,23 +91,33 @@ class PoemTemplateLoader(object):
 
         for poem in poems:
             template = self.poem_to_template(poem['content'])
-            if len(template) >= self.min_lines:
-                self.poet_templates[poem['poet_id']].append(template)
+            if not template:
+                continue
+            if self.min_lines <= len(template):
+                self.poet_templates[poem['poet_id']].append(template[:self.max_lines])
 
     def poem_to_template(self, poem_text):
-        poem_lines = poem_text.split('\n')[:self.max_lines]
+        if '&' in poem_text:
+            return None
+        poem_text = poem_text.replace('*', '')
+        poem_lines = poem_text.split('\n')
         poem_template = []
         for line in poem_lines:
-            line = line[:self.max_string_len]
-            line_tokens = [token for token in word_tokenize(line) if token.isalpha()]
+            if len(line) > self.max_string_len:
+                continue
+            line_tokens = word_tokenize(line)
+            line_tokens = [t for t in line_tokens if t not in ['...', '*', '…', ']', '[', ')', '(']]
             poem_template.append(line_tokens)
         return poem_template
 
-    def get_random_template(self, poet_id):
+    def get_random_template(self, poet_id, template_id=None):
         """Возвращает случайный шаблон выбранного поэта"""
         if not self.poet_templates[poet_id]:
             raise KeyError('Unknown poet "%s"' % poet_id)
-        return random.choice(self.poet_templates[poet_id])
+        if not template_id:
+            template_id = np.random.randint(0, len(self.poet_templates[poet_id]))
+        poem = self.poet_templates[poet_id][template_id]
+        return template_id, poem
 
 
 class Word2vecProcessor(object):
