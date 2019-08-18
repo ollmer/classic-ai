@@ -4,6 +4,7 @@ import json
 import random
 import collections
 import itertools
+import string
 
 import numpy as np
 from scipy.spatial.distance import cosine
@@ -70,14 +71,19 @@ class Phonetic(object):
 
         return word_by_form
 
+def bad_poem(template):
+    return any([len(l) < 2 for l in template]) \
+        or len(template) < 3 \
+        or template[0][0][0] in string.ascii_letters \
+        or template[1][0][0] in string.ascii_letters \
+        or template[1][0][0] in string.ascii_letters \
+        or template[-1][0][0] in string.ascii_letters \
+        or template[-1][-1][-1] in string.ascii_letters
 
 class PoemTemplateLoader(object):
-    """
-    Хранит шаблоны стихотворений, полученные из собрания сочинений.
-    Шаблон — обработанное и обрезанное стихотворение в виде набора отдельных токенов (слов).
-    """
 
-    def __init__(self, poems_file, min_lines=3, max_lines=8, max_string_len=120):
+    def __init__(self, poems_file, embeddings, min_lines=3, max_lines=8, max_string_len=120):
+        self.embeddings = embeddings
         self.poet_templates = collections.defaultdict(list)
         self.min_lines = min_lines
         self.max_lines = max_lines
@@ -89,36 +95,48 @@ class PoemTemplateLoader(object):
         with open(poems_file) as fin:
             poems = json.load(fin)
 
-        for poem in poems:
-            template = self.poem_to_template(poem['content'])
-            if not template:
-                continue
-            if self.min_lines <= len(template):
-                self.poet_templates[poem['poet_id']].append(template[:self.max_lines])
+        for poet,pt in poems.items():
+            for poem, vec in pt:
+                template = self.poem_to_template(poem)
+                if not template:
+                    continue
+                vec = np.asarray(vec)
+                self.poet_templates[poet].append((template, vec))
 
     def poem_to_template(self, poem_text):
-        if '&' in poem_text:
+        poem_text = poem_text.lower()
+        if '&' in poem_text or 'госиздат' in poem_text or 'те, те и те' in poem_text or 'гнедич' in poem_text:
             return None
-        poem_text = poem_text.replace('*', '')
+        poem_text = poem_text.replace('*', '').replace('—', '-')
         poem_lines = poem_text.split('\n')
         poem_template = []
         for line in poem_lines:
             if len(line) > self.max_string_len:
-                continue
+                raise Exception('long line ' + poem_text)
             line_tokens = word_tokenize(line)
             line_tokens = [t for t in line_tokens if t not in ['...', '*', '…', ']', '[', ')', '(']]
             poem_template.append(line_tokens)
         return poem_template
 
     def get_random_template(self, poet_id, template_id=None):
-        """Возвращает случайный шаблон выбранного поэта"""
         if not self.poet_templates[poet_id]:
             raise KeyError('Unknown poet "%s"' % poet_id)
         if not template_id:
             template_id = np.random.randint(0, len(self.poet_templates[poet_id]))
-        poem = self.poet_templates[poet_id][template_id]
-        return template_id, poem
-
+        poem, pvec = self.poet_templates[poet_id][template_id]
+        return template_id, poem, pvec
+    
+    def get_nearest_template(self, poet_id, seed_vec):
+        dists = []
+        for poem, pvec in self.poet_templates[poet_id]:
+            dists.append((poem, self.embeddings.distance(seed_vec, pvec)))
+        dists.sort(key=lambda pair: pair[1])
+        top = [d[0] for d in dists[:20] if not bad_poem(d[0])]
+        topn = min(len(top), 5)
+        n = np.random.randint(0,topn)
+        print('top', len(top), n, [d[1] for d in dists[:topn]])
+        return 0, top[n]
+    
 
 class Word2vecProcessor(object):
     """Объект для работы с моделью word2vec сходства слов"""
