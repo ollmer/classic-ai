@@ -1,4 +1,0 @@
-{
-    "image": "ollmer/classicai_lm",
-    "entry_point": "python server.py"
-}
